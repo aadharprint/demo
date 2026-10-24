@@ -1,0 +1,54 @@
+<div class="affidavit-paper" style="font-family: 'Arial', 'Noto Sans Devanagari', sans-serif; border: 3px double #1e293b; padding: 36px 46px !important;">
+    {{STAMP_OVERLAY}}
+    <div>
+        <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 14px;">
+            <div style="font-size: 21px; font-weight: 900; color: #0f172a;">उत्तर प्रदेश शासन</div>
+            <div style="font-size: 14px; font-weight: bold; margin-top: 2px;">कार्यालय उप-जिलाधिकारी / तहसीलदार : {{TEHSIL}} | जनपद : {{DISS}}</div>
+            <div style="display: inline-block; margin-top: 8px; background: #0f172a; color: #ffffff; font-weight: 900; padding: 4px 20px; border-radius: 4px; font-size: 16px; letter-spacing: 0.5px;">
+                निवास प्रमाण पत्र (DOMICILE CERTIFICATE)
+            </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; margin-bottom: 16px; font-size: 13.5px; font-weight: bold;">
+            <div>आवेदन क्र० : <span class="filled-val">{{RN}}</span></div>
+            <div>प्रमाणपत्र क्र० : <span class="filled-val">0{{AM}}</span></div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 18px;">
+            <div style="flex: 1; text-align: justify; line-height: 1.9; font-size: 15px;">
+                प्रमाणित किया जाता है कि <strong>{{DISPLAY_NAME}}</strong> 
+                {{REL}} <strong>{{FNAME}}</strong>, माता का नाम <strong>{{MNAME}}</strong>, 
+                मकान नं० <strong>{{MN}}</strong>, मोहल्ला/पोस्ट <strong>{{AREA}}</strong>, 
+                ग्राम/वार्ड <strong>{{GRAM}}</strong>, थाना <strong>{{THANA}}</strong>, 
+                तहसील <strong>{{TEHSIL}}</strong>, जनपद <strong>{{DISS}}</strong> (उत्तर प्रदेश) के स्थायी निवासी हैं।
+            </div>
+            <div style="width: 125px; display: flex; flex-direction: column; align-items: center; gap: 10px; flex-shrink: 0;">
+                <div style="width: 120px; height: 145px; border: 2px solid #0f172a; padding: 2px; background: #fff;">
+                    <img src="{{PHOTO}}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none'" />
+                </div>
+                <div style="width: 105px; height: 105px; border: 1px solid #cbd5e1; padding: 2px; background: #fff;">
+                    <img src="{{QR_URL}}" crossorigin="anonymous" style="width: 100%; height: 100%; object-fit: contain;" onerror="this.style.display='none'" />
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: 16px; padding: 10px 14px; border: 1px dashed #64748b; background: #f8fafc; font-size: 12.5px; line-height: 1.6;">
+            <div><strong>जन सेवा केंद्र (CSC/VLE) संचालक :</strong> {{VLE}}</div>
+            <div><strong>नोट :</strong> यह प्रमाण पत्र डिजिटल रूप से हस्ताक्षरित है एवं क्यूआर कोड स्कैन कर सत्यापित किया जा सकता है।</div>
+        </div>
+    </div>
+
+    <div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-end; font-weight: bold; font-size: 14px; border-top: 1px solid #cbd5e1; padding-top: 14px;">
+            <div>
+                <div>स्थान : {{TEHSIL}}, {{DISS}}</div>
+                <div>जारी दिनांक : <span class="filled-val">{{DATE}}</span></div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 15px; font-weight: 900; color: #0f172a;">{{SDM}}</div>
+                <div>सक्षम अधिकारी / उप-जिलाधिकारी</div>
+                <div style="font-size: 12px;">तहसील {{TEHSIL}}, {{DISS}}</div>
+            </div>
+        </div>
+    </div>
+</div>
