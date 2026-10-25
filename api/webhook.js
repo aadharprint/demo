@@ -1,4 +1,5 @@
 import admin from 'firebase-admin';
+import crypto from 'crypto';
 
 if (!admin.apps.length && process.env.FIREBASE_SERVICE_ACCOUNT) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -23,6 +24,7 @@ export default async function handler(req, res) {
     const rawStatus = String(eventData.status || eventData.txnStatus || body.status || body.event || '').toUpperCase();
     const paidAmount = Number(eventData.amount || body.amount || 0);
 
+    // 1. Agar VyaparGateway se "Test Webhook" button dabaya gaya hai
     if (!orderId || rawStatus.includes('TEST') || (!rawStatus.includes('SUCCESS') && !rawStatus.includes('COMPLETED') && !rawStatus.includes('PAID'))) {
       return res.status(200).json({ message: 'Webhook received / Test OK' });
     }
@@ -41,6 +43,7 @@ export default async function handler(req, res) {
 
     const paymentData = paymentSnap.data();
 
+    // 2. Duplicate check: Agar pehle hi approve ho chuka hai to dobara credit na jude
     if (paymentData.status === 'Auto-Approved' || paymentData.status === 'Approved') {
       return res.status(200).json({ message: 'Transaction already processed' });
     }
@@ -50,6 +53,7 @@ export default async function handler(req, res) {
     const wantsVip = Boolean(paymentData.wantsVip);
     const vipDays = Number(paymentData.vipDaysRequested) || 0;
 
+    // 3. User ke Credits aur VIP Validity update karein
     const userRef = db.collection('users').doc(String(userId));
     const userSnap = await userRef.get();
 
@@ -71,12 +75,14 @@ export default async function handler(req, res) {
       await userRef.update(updateFields);
     }
 
+    // 4. Payment status ko 'Auto-Approved' karein aur UTR save karein
     await paymentRef.update({
       status: 'Auto-Approved',
       utrNumber: String(utr),
       approvedAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
+    // 5. Duplicate UTR lock karein
     if (utr) {
       await db.collection('usedUtrs').doc(String(utr)).set({
         userId: userId,
@@ -84,6 +90,18 @@ export default async function handler(req, res) {
         timestamp: admin.firestore.FieldValue.serverTimestamp()
       });
     }
+
+    // 6. Admin ko Telegram par Auto-Approved Alert bhejein
+    const botToken = "8586078140:AAG-ydpakzFDAwHFtJC8AUanxZAODpGZDOk";
+    const chatId = "8942287807";
+    const vipLine = wantsVip ? `\n👑 *VIP Activated:* +${vipDays} Days` : '';
+    const tgMessage = `✅ *Auto-Payment Verified!*\n*User:* ${paymentData.email}\n*Amount Paid:* ₹${paymentData.amountPaid || paidAmount}\n*Credits Added:* +${creditsToAdd} Cr${vipLine}\n*UTR:* \`${utr}\`\n*Order ID:* \`${orderId}\`\n\n*Status:* Auto-Approved via Webhook ⚡`;
+
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: tgMessage, parse_mode: 'Markdown' })
+    }).catch(() => {});
 
     return res.status(200).json({ message: 'Credits & VIP updated automatically!' });
 

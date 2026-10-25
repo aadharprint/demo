@@ -31,6 +31,7 @@ export default async function handler(req, res) {
     const orderId = `OJAS_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const productInfo = wantsVip ? `Ojas VIP ${vipDaysRequested}d + ${creditsRequested} Cr` : `Ojas ${creditsRequested} Credits`;
 
+    // 1. Firebase 'payments' collection mein Pending order save karein
     if (admin.apps.length) {
       const db = admin.firestore();
       await db.collection('payments').doc(orderId).set({
@@ -48,6 +49,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // 2. VyaparGateway API call karke payment link / QR mangwayein
     let gatewayData = {};
     if (process.env.VYAPARGATEWAY_API_KEY) {
       try {
