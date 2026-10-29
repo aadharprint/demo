@@ -1,5 +1,4 @@
 import admin from 'firebase-admin';
-import crypto from 'crypto';
 
 if (!admin.apps.length && process.env.FIREBASE_SERVICE_ACCOUNT) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -19,12 +18,11 @@ export default async function handler(req, res) {
     const body = req.body || {};
     const eventData = body.data || body.result || body;
 
-    const orderId = eventData.client_txn_id || eventData.orderId || eventData.order_id || body.client_txn_id || body.order_id;
-    const utr = eventData.utr || eventData.bank_ref_num || eventData.upi_txn_id || body.utr || orderId;
+    const orderId = String(eventData.client_txn_id || eventData.orderId || eventData.order_id || body.client_txn_id || body.order_id || '').trim();
+    const utr = String(eventData.utr || eventData.bank_ref_num || eventData.upi_txn_id || body.utr || orderId || '').trim();
     const rawStatus = String(eventData.status || eventData.txnStatus || body.status || body.event || '').toUpperCase();
     const paidAmount = Number(eventData.amount || body.amount || 0);
 
-    // 1. Agar VyaparGateway se "Test Webhook" button dabaya gaya hai
     if (!orderId || rawStatus.includes('TEST') || (!rawStatus.includes('SUCCESS') && !rawStatus.includes('COMPLETED') && !rawStatus.includes('PAID'))) {
       return res.status(200).json({ message: 'Webhook received / Test OK' });
     }
@@ -34,68 +32,91 @@ export default async function handler(req, res) {
     }
 
     const db = admin.firestore();
-    const paymentRef = db.collection('payments').doc(String(orderId));
-    const paymentSnap = await paymentRef.get();
+    const paymentRef = db.collection('payments').doc(orderId);
+    const utrRef = db.collection('usedUtrs').doc(utr);
 
-    if (!paymentSnap.exists) {
-      return res.status(200).json({ message: 'Order not found in payments collection' });
-    }
-
-    const paymentData = paymentSnap.data();
-
-    // 2. Duplicate check: Agar pehle hi approve ho chuka hai to dobara credit na jude
-    if (paymentData.status === 'Auto-Approved' || paymentData.status === 'Approved') {
-      return res.status(200).json({ message: 'Transaction already processed' });
-    }
-
-    const userId = paymentData.userId;
-    const creditsToAdd = Number(paymentData.creditsRequested) || 0;
-    const wantsVip = Boolean(paymentData.wantsVip);
-    const vipDays = Number(paymentData.vipDaysRequested) || 0;
-
-    // 3. User ke Credits aur VIP Validity update karein
-    const userRef = db.collection('users').doc(String(userId));
-    const userSnap = await userRef.get();
-
-    if (userSnap.exists) {
-      const uData = userSnap.data();
-      const currentCredits = Number(uData.credits) || 0;
-      const now = Date.now();
-      const currentExpiry = (uData.isVip && uData.vipExpiry && uData.vipExpiry > now) ? Number(uData.vipExpiry) : now;
-
-      const updateFields = {
-        credits: currentCredits + creditsToAdd
-      };
-
-      if (wantsVip && vipDays > 0) {
-        updateFields.isVip = true;
-        updateFields.vipExpiry = currentExpiry + (vipDays * MS_PER_DAY);
+    // Atomic Firestore Transaction to prevent duplicate UTR replay & race conditions
+    const txResult = await db.runTransaction(async (t) => {
+      const paymentSnap = await t.get(paymentRef);
+      if (!paymentSnap.exists) {
+        return { ok: false, reason: 'Order not found' };
       }
 
-      await userRef.update(updateFields);
-    }
+      const paymentData = paymentSnap.data();
+      if (paymentData.status === 'Auto-Approved' || paymentData.status === 'Approved') {
+        return { ok: false, reason: 'Already processed' };
+      }
 
-    // 4. Payment status ko 'Auto-Approved' karein aur UTR save karein
-    await paymentRef.update({
-      status: 'Auto-Approved',
-      utrNumber: String(utr),
-      approvedAt: admin.firestore.FieldValue.serverTimestamp()
+      // Strict amount verification: if gateway sends amount, ensure it matches expected amountPaid
+      const expectedAmount = Number(paymentData.amountPaid) || 0;
+      if (paidAmount > 0 && expectedAmount > 0 && Math.abs(paidAmount - expectedAmount) > 1) {
+        return { ok: false, reason: `Amount mismatch: expected ${expectedAmount}, got ${paidAmount}` };
+      }
+
+      if (utr && utr !== orderId) {
+        const utrSnap = await t.get(utrRef);
+        if (utrSnap.exists) {
+          return { ok: false, reason: 'Duplicate UTR detected' };
+        }
+      }
+
+      const userId = String(paymentData.userId);
+      const userRef = db.collection('users').doc(userId);
+      const userSnap = await t.get(userRef);
+
+      const creditsToAdd = Math.floor(Math.max(0, Number(paymentData.creditsRequested) || 0));
+      const wantsVip = Boolean(paymentData.wantsVip);
+      const vipDays = Math.floor(Math.max(0, Number(paymentData.vipDaysRequested) || 0));
+
+      if (userSnap.exists) {
+        const uData = userSnap.data();
+        const currentCredits = Number(uData.credits) || 0;
+        const now = Date.now();
+        const currentExpiry = (uData.isVip && uData.vipExpiry && uData.vipExpiry > now) ? Number(uData.vipExpiry) : now;
+
+        const updateFields = {
+          credits: currentCredits + creditsToAdd
+        };
+        if (wantsVip && vipDays > 0) {
+          updateFields.isVip = true;
+          updateFields.vipExpiry = currentExpiry + (vipDays * MS_PER_DAY);
+        }
+        t.update(userRef, updateFields);
+      }
+
+      t.update(paymentRef, {
+        status: 'Auto-Approved',
+        utrNumber: utr,
+        approvedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      if (utr) {
+        t.set(utrRef, {
+          userId: userId,
+          orderId: orderId,
+          amount: expectedAmount,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
+      return {
+        ok: true,
+        email: paymentData.email,
+        amountPaid: expectedAmount || paidAmount,
+        creditsToAdd,
+        wantsVip,
+        vipDays
+      };
     });
 
-    // 5. Duplicate UTR lock karein
-    if (utr) {
-      await db.collection('usedUtrs').doc(String(utr)).set({
-        userId: userId,
-        orderId: orderId,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
+    if (!txResult.ok) {
+      return res.status(200).json({ message: txResult.reason });
     }
 
-    // 6. Admin ko Telegram par Auto-Approved Alert bhejein
-    const botToken = "8586078140:AAG-ydpakzFDAwHFtJC8AUanxZAODpGZDOk";
-    const chatId = "8942287807";
-    const vipLine = wantsVip ? `\n👑 *VIP Activated:* +${vipDays} Days` : '';
-    const tgMessage = `✅ *Auto-Payment Verified!*\n*User:* ${paymentData.email}\n*Amount Paid:* ₹${paymentData.amountPaid || paidAmount}\n*Credits Added:* +${creditsToAdd} Cr${vipLine}\n*UTR:* \`${utr}\`\n*Order ID:* \`${orderId}\`\n\n*Status:* Auto-Approved via Webhook ⚡`;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN || "8586078140:AAG-ydpakzFDAwHFtJC8AUanxZAODpGZDOk";
+    const chatId = process.env.TELEGRAM_CHAT_ID || "8942287807";
+    const vipLine = txResult.wantsVip ? `\n👑 *VIP Activated:* +${txResult.vipDays} Days` : '';
+    const tgMessage = `✅ *Auto-Payment Verified!*\n*User:* ${txResult.email}\n*Amount Paid:* ₹${txResult.amountPaid}\n*Credits Added:* +${txResult.creditsToAdd} Cr${vipLine}\n*UTR:* \`${utr}\`\n*Order ID:* \`${orderId}\`\n\n*Status:* Auto-Approved via Secure Webhook ⚡`;
 
     await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
