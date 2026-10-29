@@ -4,15 +4,15 @@
   "rewrites": [
     {
       "source": "/portal",
-      "destination": "/portal.html"
+      "destination": "/pages/portal.html"
     },
     {
       "source": "/admin",
-      "destination": "/admin.html"
+      "destination": "/pages/admin.html"
     },
     {
       "source": "/tools",
-      "destination": "/tools.html"
+      "destination": "/pages/tools.html"
     },
     {
       "source": "/api/(.*)",
