@@ -70,7 +70,7 @@ window.alert = function(message) {
         alertModal.innerHTML = `
             <div class="bg-white dark:bg-dark-900 rounded-3xl shadow-2xl border-t-4 border-royal-500 max-w-sm w-full p-6 text-center transform scale-95 transition-transform duration-300">
                 <div class="mx-auto w-16 h-16 mb-4 flex items-center justify-center rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden p-2">
-                    <img src="images/logo.png" onerror="this.src='logo.png'" alt="Ojas Logo" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1211/1211833.png'">
+                    <img src="/images/logo.png" alt="Ojas Logo" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1211/1211833.png'">
                 </div>
                 <h2 class="text-lg font-black text-dark-900 dark:text-white mb-2">Ojas Tools Studio</h2>
                 <p id="customAlertMessage" class="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-6 whitespace-pre-line leading-relaxed"></p>

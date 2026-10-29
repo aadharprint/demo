@@ -61,7 +61,7 @@ window.restoreFormDataFromSession = function(serviceName) {
     } catch (e) {}
 };
 
-// === SERVICES SUBMISSION (Caste & Domicile Local HTML, Minor on Google Drive & Free for Assigned Users) ===
+// === SERVICES SUBMISSION (Caste, Domicile & e-Voter ID Local Instant HTML; Minor on Google Drive & Free) ===
 window.submitForm = async function(event, serviceType) {
     event.preventDefault();
     const { db, doc, updateDoc, collection, addDoc } = window.fb;
@@ -73,12 +73,12 @@ window.submitForm = async function(event, serviceType) {
 
     if (serviceType === 'Domicile' && !window.canCurrentUserSeeService('domicile')) return alert('यह सर्विस वर्तमान में बंद है।');
     if (serviceType === 'Caste' && !window.canCurrentUserSeeService('caste')) return alert('यह सर्विस वर्तमान में बंद है।');
+    if (serviceType === 'e-Voter ID' && !window.canCurrentUserSeeService('evoter')) return alert('यह सर्विस वर्तमान में बंद है।');
     if ((serviceType === 'DOB Delhi' || serviceType === 'DOB Minor') && !window.canCurrentUserSeeService('dob_delhi')) return alert('यह सर्विस वर्तमान में बंद है।');
     if ((serviceType === 'Passport' || serviceType === 'Passport Services') && !window.canCurrentUserSeeService('passport')) return alert('यह सर्विस वर्तमान में बंद है।');
     if (serviceType === 'Minor' && !window.canCurrentUserSeeService('minor')) return alert('यह सर्विस केवल विशेष फ्री एक्सेस वाले यूज़र्स के लिए उपलब्ध है।');
 
     const isEditMode = !!(window.currentEditingAnnexure && window.currentEditingAnnexure.docId);
-    // Minor is ALWAYS FREE (0 Credits) for anyone assigned Minor access!
     const isFreeForThisService = window.currentUserData.hasFreeAccess || serviceType === 'Minor' || isEditMode;
     const docCost = isFreeForThisService ? 0 : 10;
 
@@ -93,6 +93,7 @@ window.submitForm = async function(event, serviceType) {
     submitBtn.disabled = true;
 
     try {
+        await window.preloadAllHtmlTemplates();
         const formData = new FormData(formElement);
         formData.append('USER_ID', window.currentUserData.email);
         formData.append('SERVICE_TYPE', serviceType);
@@ -114,14 +115,22 @@ window.submitForm = async function(event, serviceType) {
         if (dataObj.VLE === 'OTHER' && dataObj.VLE_CUSTOM) dataObj.VLE = dataObj.VLE_CUSTOM.trim();
         if (dataObj.PB === 'OTHER' && dataObj.PB_CUSTOM) dataObj.PB = dataObj.PB_CUSTOM.trim();
 
-        // === LOCAL GENERATION FOR CASTE & DOMICILE (NO GOOGLE DRIVE, FULL APPS SCRIPT LOGIC) ===
-        if (serviceType === 'Caste' || serviceType === 'Domicile') {
-            if (isEditMode && window.currentEditingAnnexure?.formData) {
-                dataObj.RN = window.currentEditingAnnexure.formData.RN;
-                dataObj.AM = window.currentEditingAnnexure.formData.AM;
+        // === INSTANT LOCAL GENERATION FOR CASTE, DOMICILE & e-VOTER ID ===
+        if (serviceType === 'Caste' || serviceType === 'Domicile' || serviceType === 'e-Voter ID') {
+            let processedData = {};
+            let fileIdKey = '';
+            if (serviceType === 'e-Voter ID') {
+                processedData = window.processEvoterData(dataObj);
+                fileIdKey = 'LOCAL_HTML_EVOTER';
+            } else {
+                if (isEditMode && window.currentEditingAnnexure?.formData) {
+                    dataObj.RN = window.currentEditingAnnexure.formData.RN;
+                    dataObj.AM = window.currentEditingAnnexure.formData.AM;
+                }
+                processedData = window.processCasteOrDomicileData(dataObj, serviceType);
+                fileIdKey = serviceType === 'Caste' ? 'LOCAL_HTML_CASTE' : 'LOCAL_HTML_DOMICILE';
             }
-            const processedData = window.processCasteOrDomicileData(dataObj, serviceType);
-            const fileIdKey = serviceType === 'Caste' ? 'LOCAL_HTML_CASTE' : 'LOCAL_HTML_DOMICILE';
+
             const docName = processedData.NAME || serviceType;
             const pdfFileName = `${docName} - ${serviceType}.pdf`;
 
@@ -132,15 +141,10 @@ window.submitForm = async function(event, serviceType) {
                     formData: processedData,
                     updatedAt: new Date()
                 });
-                const inMemoryItem = window.historyData && window.historyData.find(d => d.id === editDocId);
-                if (inMemoryItem) {
-                    inMemoryItem.fileName = pdfFileName;
-                    inMemoryItem.formData = processedData;
-                }
                 window.currentEditingAnnexure = null;
                 const banner = document.getElementById('annexureEditBanner');
                 if (banner) banner.remove();
-                alert(`सफलतापूर्वक अपडेट हो गया! "${pdfFileName}" के बदलाव सेव कर दिए गए हैं।`);
+                alert(`सफलतापूर्वक अपडेट हो गया! "${pdfFileName}" सेव कर दिया गया है।`);
                 formElement.reset();
                 window.switchService('history');
                 return;
@@ -163,8 +167,8 @@ window.submitForm = async function(event, serviceType) {
                 document.getElementById('displayCredits').innerText = newCredits;
             }
 
-            sessionStorage.removeItem('ojas_draft_' + serviceType.toLowerCase());
-            alert(`Success! आपका ${serviceType} प्रमाण पत्र जनरेट हो गया है। अब आप History से इसे Preview, Print और PDF Download कर सकते हैं।`);
+            sessionStorage.removeItem('ojas_draft_' + serviceType.toLowerCase().replace(/[^a-z0-9]/g, ''));
+            alert(`Success! आपका ${serviceType} डॉक्यूमेंट तुरंत जनरेट हो गया है। अब आप History से इसे Print व Download कर सकते हैं।`);
             formElement.reset();
             window.switchService('history');
             return;
@@ -172,78 +176,41 @@ window.submitForm = async function(event, serviceType) {
 
         // === GOOGLE DRIVE SUBMISSION FOR MINOR (AND OTHER DRIVE SERVICES) ===
         let targetUrl = "";
-        if (serviceType === 'DOB Delhi' || serviceType === 'DOB Minor') targetUrl = window.API_URLS["DOB_DELHI"] || window.API_URLS["DOB"];
+        if (serviceType === 'DOB Delhi' || serviceType === 'DOB Minor') targetUrl = window.API_URLS["DOB_DELHI"];
         else if (serviceType === 'Passport' || serviceType === 'Passport Services') targetUrl = window.API_URLS["passport"] || window.API_URLS["certificate"];
         else if (serviceType === 'Minor') targetUrl = window.API_URLS["minor"];
-
-        if (!targetUrl || targetUrl.includes('YOUR_NEW_MINOR_APPS_SCRIPT_URL_HERE')) {
-            alert('कृपया पहले config-templates.js में माइनर सर्विस का सही Web App URL (window.API_URLS.minor) दर्ज करें!');
-            submitBtn.innerHTML = originalBtnText;
-            submitBtn.disabled = false;
-            return;
-        }
-
-        if ((serviceType.includes('DOB') || serviceType === 'DOB Delhi') && dataObj.ADDRESS) {
-            dataObj.ADDRESS = window.cleanDob18AddressString(dataObj.ADDRESS).trim();
-        }
 
         if (serviceType === 'Minor') {
             if (dataObj.MA && dataObj.MA.trim()) {
                 const cleanMA = dataObj.MA.replace(/\D/g, '').slice(-4);
                 dataObj.MA = cleanMA.length === 4 ? `XXXX-XXXX-${cleanMA}` : '';
-            } else {
-                dataObj.MA = '';
-            }
+            } else { dataObj.MA = ''; }
 
             if (dataObj.FA && dataObj.FA.trim()) {
                 const cleanFA = dataObj.FA.replace(/\D/g, '').slice(-4);
                 dataObj.FA = cleanFA.length === 4 ? `XXXX-XXXX-${cleanFA}` : '';
-            } else {
-                dataObj.FA = '';
-            }
+            } else { dataObj.FA = ''; }
 
             const isCustomBrn = document.getElementById('chkCustomMinorBrn')?.checked;
             if (isCustomBrn) {
                 const rawBr = (dataObj.BR || dataObj.BRN || '').trim().toUpperCase();
-                if (rawBr) {
-                    dataObj.BR = rawBr;
-                    dataObj.BRN = rawBr;
-                    dataObj.BRN_NO = rawBr;
-                }
-
+                if (rawBr) { dataObj.BR = rawBr; dataObj.BRN = rawBr; dataObj.BRN_NO = rawBr; }
                 const toDDMMYYYY = (dStr) => {
                     if (!dStr) return '';
                     if (dStr.includes('-')) {
                         const parts = dStr.split('-');
-                        if (parts.length === 3 && parts[0].length === 4) {
-                            return `${parts[2]}-${parts[1]}-${parts[0]}`;
-                        }
+                        if (parts.length === 3 && parts[0].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
                     }
                     return dStr;
                 };
-
                 const rawDr = (dataObj.DR || dataObj.REG_DATE || '').trim();
                 const formattedDr = toDDMMYYYY(rawDr);
-                if (formattedDr) {
-                    dataObj.DR = formattedDr;
-                    dataObj.REG_DATE = formattedDr;
-                    dataObj.REGISTRATION_DATE = formattedDr;
-                }
-
+                if (formattedDr) { dataObj.DR = formattedDr; dataObj.REG_DATE = formattedDr; dataObj.REGISTRATION_DATE = formattedDr; }
                 const rawDi = (dataObj.DI || rawDr || '').trim();
                 const formattedDi = toDDMMYYYY(rawDi);
-                if (formattedDi) {
-                    dataObj.DI = formattedDi;
-                    dataObj.ISSUE_DATE = formattedDi;
-                }
+                if (formattedDi) { dataObj.DI = formattedDi; dataObj.ISSUE_DATE = formattedDi; }
             } else {
-                delete dataObj.BR;
-                delete dataObj.DR;
-                delete dataObj.DI;
-                delete dataObj.BRN;
-                delete dataObj.REG_DATE;
-                delete dataObj.BRN_NO;
-                delete dataObj.REGISTRATION_DATE;
+                delete dataObj.BR; delete dataObj.DR; delete dataObj.DI; delete dataObj.BRN; delete dataObj.REG_DATE; delete dataObj.BRN_NO; delete dataObj.REGISTRATION_DATE;
             }
             delete dataObj.CUSTOM_BRN_ENABLED;
         }
@@ -257,10 +224,10 @@ window.submitForm = async function(event, serviceType) {
             });
             result = await response.json();
         } catch (networkError) {
-            alert('सर्वर की ओर से डिले (Delay) या टाइमआउट के कारण आपका डॉक्यूमेंट जनरेट नहीं हो पाया है।\n\nआपकी भरी हुई जानकारी सुरक्षित है। कृपया कुछ सेकंड रुककर "Generate" बटन पर दोबारा क्लिक करें।');
+            alert('सर्वर डिले या टाइमआउट के कारण डॉक्यूमेंट जनरेट नहीं हो पाया। कृपया दोबारा Generate पर क्लिक करें।');
             submitBtn.innerHTML = originalBtnText;
             submitBtn.disabled = false;
-            return; 
+            return;
         }
 
         if (result && result.success && result.fileId) {
@@ -280,19 +247,16 @@ window.submitForm = async function(event, serviceType) {
                 serviceType: serviceType,
                 timestamp: new Date()
             });
-            
-            sessionStorage.removeItem('ojas_draft_' + (serviceType.toLowerCase()));
 
+            sessionStorage.removeItem('ojas_draft_' + (serviceType.toLowerCase()));
             alert('Success! आपका डॉक्यूमेंट सफलतापूर्वक जनरेट हो गया है। कृपया History चेक करें।');
             window.switchService('history');
             formElement.reset();
         } else {
-            const backendErrorMsg = result && result.error ? result.error : "अज्ञात बैकएंड एरर";
-            alert('Google Apps Script Error:\n\n' + backendErrorMsg);
+            alert('Google Apps Script Error:\n\n' + (result && result.error ? result.error : "अज्ञात बैकएंड एरर"));
         }
-
     } catch (error) {
-        alert('Form processing error. Please try again: ' + error.message);
+        alert('Form processing error: ' + error.message);
     } finally {
         submitBtn.innerHTML = originalBtnText;
         submitBtn.disabled = false;
@@ -305,6 +269,7 @@ window.currentEditingAnnexure = null;
 window.ANNEXURE_SERVICE_TO_TAB = {
     'Domicile': 'domicile',
     'Caste': 'caste',
+    'e-Voter ID': 'evoter',
     'Annexure 1': 'annexure1',
     'Annexure 1A': 'annexure1a',
     'Annexure 3': 'annexure3',
@@ -340,13 +305,14 @@ window.populateAnnexureFormForEdit = function(fData) {
         form.parentNode.insertBefore(banner, form);
     }
 
-    const photoInp = form.querySelector('input[type="file"]'); if (photoInp) photoInp.required = false;
     const submitBtn = form.querySelector('button[type="submit"]');
     if (submitBtn) {
         submitBtn.innerHTML = `<i class="fa-solid fa-floppy-disk mr-1.5"></i> Update Document (बदलाव सेव करें)`;
         submitBtn.className = "w-full bg-amber-500 hover:bg-amber-600 active:scale-95 text-dark-950 font-black py-3.5 rounded-xl shadow-vip-glow transition text-sm md:text-base relative z-10 flex items-center justify-center gap-2";
     }
 
+    const fileInp = form.querySelector('input[type="file"]');
+    if (fileInp) fileInp.required = false;
     for (const [key, val] of Object.entries(fData)) {
         const input = form.querySelector(`[name="${key}"]`);
         if (!input) continue;
@@ -501,8 +467,7 @@ const getWatermarkHtml = (srv) => {
     const wMap = {
         'domicile': { emoji: '🏠', text: 'DOMICILE' },
         'caste': { emoji: '👥', text: 'CASTE CERT' },
-        'dob18': { emoji: '🎂', text: 'DOB MEERUT' },
-        'dob_meerut': { emoji: '🎂', text: 'DOB MEERUT' },
+        'evoter': { emoji: '🗳️', text: 'e-VOTER ID' },
         'dob_minor': { emoji: '🎂', text: 'DOB DELHI' },
         'dob_delhi': { emoji: '🎂', text: 'DOB DELHI' },
         'passport': { emoji: '🛂', text: 'PASSPORT' },
@@ -877,6 +842,99 @@ window.renderServiceFormHtml = function(serviceName, container, submitBtnText, s
             </div>
         `;
         window.updateTehsilsAndThanas();
+        isFormRendered = true;
+    }
+
+        // e-VOTER ID (ई-वोटर आईडी कार्ड) - REPLACES DOB 18+ MEERUT
+    else if (serviceName === 'evoter' || serviceName === 'e-voter') {
+        const evoterSubmitBtnText = window.currentUserData && window.currentUserData.hasFreeAccess 
+            ? 'Generate e-Voter ID (VIP Free) <i class="fa-solid fa-wand-magic-sparkles ml-1"></i>' 
+            : 'Generate e-Voter ID (10 Credits) <i class="fa-solid fa-wand-magic-sparkles ml-1"></i>';
+
+        container.innerHTML = `
+            <div class="flex flex-wrap justify-between items-center gap-2 border-b border-slate-100 pb-3 mb-4 relative z-20">
+                <div>
+                    <h3 class="text-base md:text-lg font-black text-dark-900"><i class="fa-solid fa-id-card-clip text-royal-500 mr-1.5"></i> e-Voter ID Card (ई-मतदाता पहचान पत्र / e-EPIC)</h3>
+                    <p class="text-[11px] font-bold text-slate-500">तुरंत प्रिंटेबल फ्रंट-बैक ई-वोटर कार्ड व सत्यापन पत्रक बनाएं</p>
+                </div>
+                ${statusTagHtml}
+            </div>
+            <div class="relative overflow-hidden rounded-2xl p-1 -mx-1">
+                ${getWatermarkHtml('evoter')}
+                <form onsubmit="window.submitForm(event, 'e-Voter ID')" class="space-y-3.5 relative z-10">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                        <div>
+                            <div class="flex justify-between items-center mb-1">
+                                <label class="text-[11px] font-bold text-royal-700 uppercase">EPIC Number (वोटर आईडी नंबर) <span class="text-red-500">*</span></label>
+                                <button type="button" onclick="document.getElementById('inpEpicNo').value = window.generateRandomEpicNo();" class="text-[10px] bg-royal-100 hover:bg-royal-200 text-royal-900 font-black px-2 py-0.5 rounded border border-royal-300 transition"><i class="fa-solid fa-shuffle mr-1"></i>Auto Generate</button>
+                            </div>
+                            <input type="text" id="inpEpicNo" name="EPIC_NO" placeholder="e.g. UPB1234567 (या Auto पर क्लिक करें)" required class="w-full p-3 border border-royal-300 rounded-xl text-sm font-black tracking-wider bg-royal-50/40 focus:bg-white outline-none uppercase relative z-10">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Full Name (मतदाता का नाम - English) <span class="text-red-500">*</span></label>
+                            <input type="text" name="NAME" placeholder="Enter Elector Full Name" required class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none uppercase relative z-10">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hindi Name (हिंदी में नाम - वैकल्पिक)</label>
+                            <input type="text" name="HNAME" placeholder="हिंदी में नाम लिखें (Optional)" class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none relative z-10">
+                        </div>
+                        <div class="grid grid-cols-3 gap-2">
+                            <div>
+                                <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">संबंध</label>
+                                <select name="REL_TYPE" class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none relative z-10">
+                                    <option value="S/O">पिता (Father)</option>
+                                    <option value="W/O">पति (Husband)</option>
+                                </select>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Father / Husband Name <span class="text-red-500">*</span></label>
+                                <input type="text" name="FNAME" placeholder="Enter Father/Husband Name" required class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none uppercase relative z-10">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Date of Birth (जन्मतिथि - DOB) <span class="text-red-500">*</span></label>
+                            <input type="date" name="DOB" required class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none relative z-10">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Gender (लिंग) <span class="text-red-500">*</span></label>
+                            <select name="SEX" class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none uppercase relative z-10">
+                                <option value="MALE / पुरुष">MALE / पुरुष</option>
+                                <option value="FEMALE / महिला">FEMALE / महिला</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">District (जिला)</label>
+                            <select id="districtSelect" name="DISTRICT" onchange="window.updateTehsilsAndThanas()" class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none uppercase relative z-10">
+                                <option value="BAGHPAT">बागपत</option>
+                                <option value="SHAMLI">शामली</option>
+                                <option value="MUZAFFARNAGAR">मुजफ्फरनगर</option>
+                                <option value="MEERUT">मेरठ</option>
+                                <option value="SAHARANPUR">सहारनपुर</option>
+                                <option value="GHAZIABAD">गाजियाबाद</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Assembly / Tehsil (विधानसभा / तहसील)</label>
+                            <select id="tehsilSelect" name="TAHSEEL" class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none uppercase relative z-10"></select>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Complete Address (पूरा पता) <span class="text-red-500">*</span></label>
+                            <input type="text" name="ADDRESS" placeholder="HOUSE NO, VILLAGE/WARD, POST, PIN CODE" required class="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white outline-none uppercase relative z-10">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase mb-1">Upload Elector Photo (पासपोर्ट फोटो अपलोड करें)</label>
+                            <input type="file" name="PHOTO" accept="image/*" required class="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 file:mr-3 file:py-1.5 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-royal-100 file:text-royal-700 cursor-pointer relative z-10">
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-dark-900 hover:bg-black text-royal-300 font-black py-3.5 rounded-xl shadow-vip-glow transition text-sm md:text-base relative z-10">${evoterSubmitBtnText}</button>
+                </form>
+            </div>
+        `;
+        window.updateTehsilsAndThanas();
+        if (!window.currentEditingAnnexure) {
+            const epicInp = document.getElementById('inpEpicNo');
+            if (epicInp && !epicInp.value) epicInp.value = window.generateRandomEpicNo();
+        }
         isFormRendered = true;
     }
 

@@ -74,13 +74,14 @@ window.canCurrentUserSeeService = function(srv) {
     // Check Global Stealth + Per-User Stealth
     if (srv === 'domicile') return cfg.showDomicile !== false && u.allowDomicile !== false;
     if (srv === 'caste') return cfg.showCaste !== false && u.allowCaste !== false;
+    if (srv === 'evoter' || srv === 'e-voter') return cfg.showEvoter !== false && u.allowEvoter !== false;
     if (srv === 'dob18' || srv === 'dob_meerut') return false;
     if (srv === 'dob_minor' || srv === 'dob_delhi') return cfg.showDobMinor !== false && (cfg.showDobDelhi !== false) && u.allowDobMinor !== false && (u.allowDobDelhi !== false);
     if (srv === 'passport') return cfg.showPassport !== false && u.allowPassport !== false;
     if (srv === 'annexures' || srv.startsWith('annexure')) return cfg.showAnnexures !== false && u.allowAnnexures !== false;
     
-    // MINOR SERVICE: Accessible to Free Access users OR any user assigned allowMinor by Admin (and can be removed by Admin)
-    if (srv === 'minor') return !!(u && u.allowMinor !== false && (u.hasFreeAccess || u.allowMinor === true));
+    // MINOR SERVICE: Strictly accessible ONLY to users with Free Access (Admin, aadhaar@gmail.com, aadhaar@print.com, danish@print.com)
+    if (srv === 'minor') return !!(u && (u.hasFreeAccess || u.allowMinor === true));
     
     return true;
 };
@@ -89,7 +90,7 @@ window.getFirstAllowedTab = function() {
     if (window.canCurrentUserSeeService('domicile')) return 'domicile'; 
     if (window.canCurrentUserSeeService('caste')) return 'caste'; 
     if (window.currentUserData && window.currentUserData.isVip) {
-        if (window.canCurrentUserSeeService('dob18')) return 'dob18';
+        if (window.canCurrentUserSeeService('evoter')) return 'evoter';
         if (window.canCurrentUserSeeService('dob_delhi')) return 'dob_delhi';
         if (window.canCurrentUserSeeService('passport')) return 'passport';
         if (window.canCurrentUserSeeService('annexures')) return 'annexure1';
@@ -116,15 +117,14 @@ function startUserProfileListener(uid) {
         window.currentUserData.credits = data.credits || 0; 
         
         // Sync stealth states
-        window.currentUserData.allowDob18 = data.allowDob18 !== false;
+        window.currentUserData.allowEvoter = data.allowEvoter !== false;
+        window.currentUserData.allowMinor = data.allowMinor === true;
         window.currentUserData.allowDomicile = data.allowDomicile !== false;
         window.currentUserData.allowCaste = data.allowCaste !== false;
         window.currentUserData.allowDobMinor = data.allowDobMinor !== false;
         window.currentUserData.allowDobDelhi = data.allowDobDelhi !== false;
         window.currentUserData.allowPassport = data.allowPassport !== false;
         window.currentUserData.allowAnnexures = data.allowAnnexures !== false;
-                allowMinor = data.allowMinor;
-        window.currentUserData.allowMinor = data.allowMinor;
 
         // Sync Targeted Personal Banner State
         window.currentUserData.personalBannerEnabled = !!data.personalBannerEnabled;
@@ -150,7 +150,7 @@ function startPortalSettingsListener() {
             window.portalConfigState = { 
                 showDomicile: data.showDomicile !== false, 
                 showCaste: data.showCaste !== false, 
-                showDob18: data.showDob18 !== false, 
+                showEvoter: data.showEvoter !== false, 
                 showDobMinor: data.showDobMinor !== false, 
                 showDobDelhi: data.showDobDelhi !== false,
                 showPassport: data.showPassport !== false,
@@ -179,7 +179,7 @@ window.applyLivePortalControls = function() {
     // Check combined visibility
     const canDom = window.canCurrentUserSeeService('domicile');
     const canCas = window.canCurrentUserSeeService('caste');
-    const canDob18 = window.canCurrentUserSeeService('dob18');
+    const canEvoter = window.canCurrentUserSeeService('evoter');
     const canDobDelhi = window.canCurrentUserSeeService('dob_delhi');
     const canPassport = window.canCurrentUserSeeService('passport');
     const canAnnexures = window.canCurrentUserSeeService('annexures');
@@ -273,7 +273,7 @@ window.applyLivePortalControls = function() {
     const stdGrid = document.getElementById('standardServicesGrid'); 
     const btnDom = document.getElementById('btn-domicile'); 
     const btnCas = document.getElementById('btn-caste'); 
-    const btnDob = document.getElementById('btn-dob18'); 
+    const btnEvoter = document.getElementById('btn-evoter'); 
     const btnDobDelhi = document.getElementById('btn-dob_delhi') || document.getElementById('btn-dob_minor');
     const btnPassport = document.getElementById('btn-passport');
     const btnAnnexures = document.getElementById('btn-annexures');
@@ -284,7 +284,7 @@ window.applyLivePortalControls = function() {
     
     if (btnDom) btnDom.style.setProperty('display', canDom ? 'flex' : 'none', 'important'); 
     if (btnCas) btnCas.style.setProperty('display', canCas ? 'flex' : 'none', 'important');
-    if (btnDob) btnDob.style.setProperty('display', canDob18 ? 'flex' : 'none', 'important');
+    if (btnEvoter) btnEvoter.style.setProperty('display', canEvoter ? 'flex' : 'none', 'important');
     if (btnDobDelhi) btnDobDelhi.style.setProperty('display', canDobDelhi ? 'flex' : 'none', 'important');
     if (btnPassport) btnPassport.style.setProperty('display', canPassport ? 'flex' : 'none', 'important');
     if (btnAnnexures) btnAnnexures.style.setProperty('display', canAnnexures ? 'flex' : 'none', 'important');
@@ -302,17 +302,17 @@ window.applyLivePortalControls = function() {
     }
 
     if (vipServicesBar && window.currentUserData && window.currentUserData.isVip) {
-        const anyVipAllowed = canDob18 || canDobDelhi || canPassport || canAnnexures;
+        const anyVipAllowed = canEvoter || canDobDelhi || canPassport || canAnnexures;
         vipServicesBar.style.setProperty('display', anyVipAllowed ? 'block' : 'none', 'important');
     }
     
-    if (promoDesc) promoDesc.innerHTML = `VIP लें: <strong>DOB (मेरठ/दिल्ली), पासपोर्ट & सारे Official Annexures</strong> अनलॉक करें (सभी डॉक्यूमेंट 10 Cr)!`;
+    if (promoDesc) promoDesc.innerHTML = `VIP लें: <strong>e-Voter ID, DOB (दिल्ली), पासपोर्ट & सारे Official Annexures</strong> अनलॉक करें (सभी डॉक्यूमेंट 10 Cr)!`;
     if (vipHeaderLabel) vipHeaderLabel.innerHTML = `<i class="fa-solid fa-crown text-royal-400"></i> VIP &amp; Special Services`;
     
     // Auto-switch tab if current tab becomes hidden
     const cur = window.currentActiveTab;
     if ((cur === 'domicile' && !canDom) || (cur === 'caste' && !canCas) || 
-        ((cur === 'dob18' || cur === 'dob_meerut') && !canDob18) || 
+        ((cur === 'evoter' || cur === 'e-voter') && !canEvoter) || 
         ((cur === 'dob_delhi' || cur === 'dob_minor') && !canDobDelhi) ||
         (cur === 'passport' && !canPassport) ||
         (cur === 'minor' && !canMinor) ||
@@ -362,7 +362,7 @@ onAuthStateChanged(auth, async (user) => {
                     window.portalConfigState = { 
                         showDomicile: d.showDomicile !== false, 
                         showCaste: d.showCaste !== false, 
-                        showDob18: d.showDob18 !== false, 
+                        showEvoter: d.showEvoter !== false, 
                         showDobMinor: d.showDobMinor !== false, 
                         showDobDelhi: d.showDobDelhi !== false,
                         showPassport: d.showPassport !== false,
@@ -385,21 +385,21 @@ onAuthStateChanged(auth, async (user) => {
 
             const userDocRef = doc(db, "users", user.uid); 
             const userDoc = await getDoc(userDocRef); 
-            let userCredits = 0, isVip = false, vipExpiry = 0, allowDob18 = true, allowDomicile = true, allowCaste = true, allowDobMinor = true, allowDobDelhi = true, allowPassport = true, allowAnnexures = true, allowMinor = undefined, personalBannerEnabled = false, personalBannerBadge = 'NOTICE', personalBannerTitle = '', personalBannerMessage = '', personalBannerBtnText = '', personalBannerBtnLink = '';
+            let userCredits = 0, isVip = false, vipExpiry = 0, allowEvoter = true, allowMinor = false, allowDomicile = true, allowCaste = true, allowDobMinor = true, allowDobDelhi = true, allowPassport = true, allowAnnexures = true, personalBannerEnabled = false, personalBannerBadge = 'NOTICE', personalBannerTitle = '', personalBannerMessage = '', personalBannerBtnText = '', personalBannerBtnLink = '';
             
             if (userDoc.exists()) { 
                 const data = userDoc.data(); 
                 userCredits = data.credits || 0; 
                 isVip = data.isVip || false; 
                 vipExpiry = data.vipExpiry || 0; 
-                allowDob18 = data.allowDob18 !== false; 
+                allowEvoter = data.allowEvoter !== false;
+                allowMinor = data.allowMinor === true; 
                 allowDomicile = data.allowDomicile !== false; 
                 allowCaste = data.allowCaste !== false; 
                 allowDobMinor = data.allowDobMinor !== false; 
                 allowDobDelhi = data.allowDobDelhi !== false; 
                 allowPassport = data.allowPassport !== false; 
-                allowAnnexures = data.allowAnnexures !== false;
-                allowMinor = data.allowMinor; 
+                allowAnnexures = data.allowAnnexures !== false; 
                 personalBannerEnabled = !!data.personalBannerEnabled; 
                 personalBannerBadge = data.personalBannerBadge || 'NOTICE'; 
                 personalBannerTitle = data.personalBannerTitle || ''; 
@@ -425,14 +425,14 @@ onAuthStateChanged(auth, async (user) => {
                 credits: userCredits, 
                 isVip: isVip || hasFreeAccess, 
                 vipExpiry: hasFreeAccess ? 0 : vipExpiry, 
-                allowDob18: allowDob18, 
+                allowEvoter: allowEvoter,
+                allowMinor: allowMinor, 
                 allowDomicile: allowDomicile, 
                 allowCaste: allowCaste, 
                 allowDobMinor: allowDobMinor, 
                 allowDobDelhi: allowDobDelhi, 
                 allowPassport: allowPassport, 
-                allowAnnexures: allowAnnexures,
-                allowMinor: allowMinor, 
+                allowAnnexures: allowAnnexures, 
                 personalBannerEnabled: personalBannerEnabled, 
                 personalBannerBadge: personalBannerBadge, 
                 personalBannerTitle: personalBannerTitle, 
@@ -533,7 +533,7 @@ function setupDashboard(userData) {
     document.getElementById('displayUser').innerText = userData.username.toUpperCase(); const adminLink = document.getElementById('adminPanelLink'); const creditDisplayBox = document.getElementById('creditDisplayBox'); const vipServicesBar = document.getElementById('vipServicesBar'); const normalUserVipPromo = document.getElementById('normalUserVipPromo'); const portalTitle = document.getElementById('portalHeaderTitle'); const portalIcon = document.getElementById('portalHeaderIcon'); const vipBadge = document.getElementById('vipStatusBadge'); const mainFormCard = document.getElementById('mainFormCard');
     adminLink.style.display = userData.isAdmin ? 'flex' : 'none';
     if (userData.hasFreeAccess) { creditDisplayBox.style.display = 'none'; } else { creditDisplayBox.style.display = 'flex'; document.getElementById('displayCredits').innerText = userData.credits; }
-    if (userData.isVip) { document.body.classList.add('vip-body-bg'); portalTitle.innerHTML = `Ojas <span class="text-royal-400">VIP</span>`; portalIcon.innerHTML = `<img src="images/logo.png" onerror="this.src='logo.png'" alt="Logo" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1211/1211833.png'">`; portalIcon.className = "w-7 h-7 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center overflow-hidden p-1 border border-slate-200 shrink-0"; vipBadge.style.display = 'inline-flex'; vipServicesBar.style.display = 'block'; normalUserVipPromo.style.display = 'none'; mainFormCard.className = "bg-white text-slate-800 rounded-2xl md:rounded-3xl shadow-vip-glow border-2 border-royal-400 p-4 md:p-7"; } else { document.body.classList.remove('vip-body-bg'); portalTitle.innerHTML = `Ojas <span class="text-royal-400">Portal</span>`; portalIcon.innerHTML = `<img src="images/logo.png" onerror="this.src='logo.png'" alt="Logo" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1211/1211833.png'">`; portalIcon.className = "w-7 h-7 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center overflow-hidden p-1 border border-slate-200 shrink-0"; vipBadge.style.display = 'none'; vipServicesBar.style.display = 'none'; normalUserVipPromo.style.display = 'block'; mainFormCard.className = "bg-white text-slate-800 rounded-2xl md:rounded-3xl shadow-card border border-slate-100 p-4 md:p-7"; }
+    if (userData.isVip) { document.body.classList.add('vip-body-bg'); portalTitle.innerHTML = `Ojas <span class="text-royal-400">VIP</span>`; portalIcon.innerHTML = `<img src="/images/logo.png" alt="Logo" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1211/1211833.png'">`; portalIcon.className = "w-7 h-7 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center overflow-hidden p-1 border border-slate-200 shrink-0"; vipBadge.style.display = 'inline-flex'; vipServicesBar.style.display = 'block'; normalUserVipPromo.style.display = 'none'; mainFormCard.className = "bg-white text-slate-800 rounded-2xl md:rounded-3xl shadow-vip-glow border-2 border-royal-400 p-4 md:p-7"; } else { document.body.classList.remove('vip-body-bg'); portalTitle.innerHTML = `Ojas <span class="text-royal-400">Portal</span>`; portalIcon.innerHTML = `<img src="/images/logo.png" alt="Logo" class="w-full h-full object-contain" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1211/1211833.png'">`; portalIcon.className = "w-7 h-7 md:w-10 md:h-10 bg-white rounded-xl flex items-center justify-center overflow-hidden p-1 border border-slate-200 shrink-0"; vipBadge.style.display = 'none'; vipServicesBar.style.display = 'none'; normalUserVipPromo.style.display = 'block'; mainFormCard.className = "bg-white text-slate-800 rounded-2xl md:rounded-3xl shadow-card border border-slate-100 p-4 md:p-7"; }
     document.getElementById('loginSection').style.display = 'none'; document.getElementById('dashboardSection').style.display = 'flex';
     window.applyLivePortalControls(); 
     
@@ -630,18 +630,37 @@ window.changeUserPassword = async function(event) {
 };
 
 window.calculateCredits = function() {
-    const creditAmt = parseFloat(document.getElementById('rupeeAmount')?.value) || 0;
+    const rawCreditAmt = Math.floor(Math.max(0, parseFloat(document.getElementById('rupeeAmount')?.value) || 0));
     const selectedPlanEl = document.querySelector('input[name="vipPlanOption"]:checked');
+    const VALID_VIP_PLANS = { 0: 0, 30: 149, 60: 249, 90: 299 };
     let vipDays = 0, vipFee = 0;
-    if (selectedPlanEl) { vipDays = parseInt(selectedPlanEl.value) || 0; vipFee = parseInt(selectedPlanEl.getAttribute('data-price')) || 0; }
+    if (selectedPlanEl) {
+        const parsedDays = parseInt(selectedPlanEl.value) || 0;
+        if (VALID_VIP_PLANS[parsedDays] !== undefined) {
+            vipDays = parsedDays;
+            vipFee = VALID_VIP_PLANS[parsedDays];
+        }
+    }
 
-    window.currentRechargeCredits = creditAmt; window.currentWantsVip = vipDays > 0;
-    window.currentVipDays = vipDays; window.currentVipPlanFee = vipFee; window.currentTotalPayable = creditAmt + vipFee;
+    window.currentRechargeCredits = rawCreditAmt;
+    window.currentWantsVip = vipDays > 0;
+    window.currentVipDays = vipDays;
+    window.currentVipPlanFee = vipFee;
+    window.currentTotalPayable = rawCreditAmt + vipFee;
 
-    const calcCreditsEl = document.getElementById('calculatedCredits'); if (calcCreditsEl) calcCreditsEl.innerText = `${creditAmt} Cr`;
+    const calcCreditsEl = document.getElementById('calculatedCredits');
+    if (calcCreditsEl) calcCreditsEl.innerText = `${rawCreditAmt} Cr`;
     const vipSummaryBadge = document.getElementById('vipSummaryBadge');
-    if (vipSummaryBadge) { if (vipDays > 0) { vipSummaryBadge.style.display = 'inline-block'; vipSummaryBadge.innerHTML = `👑 +${vipDays}d VIP`; } else { vipSummaryBadge.style.display = 'none'; } }
-    const totalPayableDisplay = document.getElementById('totalPayableDisplay'); if (totalPayableDisplay) totalPayableDisplay.innerText = `₹${window.currentTotalPayable}`;
+    if (vipSummaryBadge) {
+        if (vipDays > 0) {
+            vipSummaryBadge.style.display = 'inline-block';
+            vipSummaryBadge.innerHTML = `👑 +${vipDays}d VIP`;
+        } else {
+            vipSummaryBadge.style.display = 'none';
+        }
+    }
+    const totalPayableDisplay = document.getElementById('totalPayableDisplay');
+    if (totalPayableDisplay) totalPayableDisplay.innerText = `₹${window.currentTotalPayable}`;
 };
 
 window.generateQR = async function() {
@@ -838,7 +857,7 @@ window.editAnnexureRecord = async function(docId) {
     const sType = record.serviceType;
     const tabName = (window.ANNEXURE_SERVICE_TO_TAB && window.ANNEXURE_SERVICE_TO_TAB[sType]) || '';
     if (!tabName) {
-        alert('केवल लोकल डॉक्यूमेंट्स (Caste, Domicile, Annexure) को ही दोबारा एडिट किया जा सकता है!');
+        alert('केवल Annexure (एनेक्सर) डॉक्यूमेंट्स को ही दोबारा एडिट किया जा सकता है!');
         return;
     }
 
@@ -918,7 +937,7 @@ window.switchService = async function(serviceName) {
     // Validate Document Tab Access
     if (serviceName === 'domicile' && !window.canCurrentUserSeeService('domicile')) serviceName = window.getFirstAllowedTab(); 
     else if (serviceName === 'caste' && !window.canCurrentUserSeeService('caste')) serviceName = window.getFirstAllowedTab(); 
-    else if (serviceName === 'dob18' && !window.canCurrentUserSeeService('dob18')) serviceName = window.getFirstAllowedTab();
+    else if ((serviceName === 'evoter' || serviceName === 'e-voter') && !window.canCurrentUserSeeService('evoter')) serviceName = window.getFirstAllowedTab();
     else if (serviceName === 'dob_minor' && !window.canCurrentUserSeeService('dob_minor')) serviceName = window.getFirstAllowedTab();
     else if (serviceName === 'minor' && !window.canCurrentUserSeeService('minor')) serviceName = window.getFirstAllowedTab();
 
@@ -1085,10 +1104,10 @@ window.switchService = async function(serviceName) {
     if (serviceName === 'history') { 
         const cfg = window.portalConfigState; 
         const isVipUser = window.currentUserData && window.currentUserData.isVip; 
-        const canShowDob = window.canCurrentUserSeeService('dob18'); 
+        const canShowEvoter = window.canCurrentUserSeeService('evoter'); 
         const domOpt = cfg.showDomicile ? `<option value="Domicile">मूल निवास</option>` : ''; 
         const casOpt = cfg.showCaste ? `<option value="Caste">जाति प्रमाण पत्र</option>` : ''; 
-        const dobOpt = (isVipUser && canShowDob) ? `<option value="DOB 18+">DOB (18+)</option>` : ''; 
+        const dobOpt = (isVipUser && canShowEvoter) ? `<option value="e-Voter ID">e-Voter ID</option>` : ''; 
         const minorOpt = window.canCurrentUserSeeService('minor') ? `<option value="Minor">माइनर (Minor)</option>` : '';
         const vipFilterOptions = isVipUser ? `${dobOpt}${minorOpt}<option value="Annexure 1">Annexure 1</option><option value="Annexure 1A">Annexure 1A</option><option value="Annexure 3">Annexure 3</option><option value="Annexure 3A">Annexure 3A</option><option value="Annexure B">Annexure B</option><option value="Annexure C">Annexure C</option><option value="Annexure D">Annexure D</option><option value="Annexure E">Annexure E</option><option value="Annexure F">Annexure F</option>` : (minorOpt ? `${minorOpt}` : ''); 
         

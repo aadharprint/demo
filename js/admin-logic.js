@@ -114,15 +114,7 @@ window.loadSingleStampFile = function(fileName) {
                 ctx.putImageData(imgData, 0, 0); resolve({ name: fileName, dataUrl: canvas.toDataURL('image/png') });
             } catch (e) { resolve({ name: fileName, dataUrl: fileName }); }
         };
-        img.onerror = () => {
-            if (!fileName.startsWith('images/')) {
-                img.onerror = () => resolve(null);
-                img.src = fileName;
-            } else {
-                resolve(null);
-            }
-        };
-        img.src = fileName.startsWith('images/') ? fileName : ('images/' + fileName);
+        img.onerror = () => { if (!fileName.startsWith('/images/') && !fileName.startsWith('images/')) { img.onerror = () => resolve(null); img.src = 'images/' + fileName; } else { resolve(null); } }; img.src = fileName.startsWith('/') || fileName.startsWith('images/') ? fileName : '/images/' + fileName;
     });
 };
 
@@ -443,7 +435,7 @@ window.loadPortalSettingsForAdmin = async function() {
         
         document.getElementById('chkShowDomicile').checked = cfg.showDomicile !== false; 
         document.getElementById('chkShowCaste').checked = cfg.showCaste !== false; 
-        document.getElementById('chkShowDob18').checked = cfg.showDob18 !== false; 
+        if(document.getElementById('chkShowEvoter')) document.getElementById('chkShowEvoter').checked = cfg.showEvoter !== false; 
         const dobMinorEl = document.getElementById('chkShowDobMinor'); if(dobMinorEl) dobMinorEl.checked = cfg.showDobMinor !== false;
         const passEl = document.getElementById('chkShowPassport'); if(passEl) passEl.checked = cfg.showPassport !== false;
         const annexEl = document.getElementById('chkShowAnnexures'); if(annexEl) annexEl.checked = cfg.showAnnexures !== false;
@@ -472,11 +464,11 @@ window.loadPortalSettingsForAdmin = async function() {
 };
 
 window.updateStealthStatusPill = function() {
-    const d = document.getElementById('chkShowDomicile')?.checked; const c = document.getElementById('chkShowCaste')?.checked; const b = document.getElementById('chkShowDob18')?.checked; const m = document.getElementById('chkShowDobMinor')?.checked; const pill = document.getElementById('stealthStatusBadge'); if (!pill) return;
+    const d = document.getElementById('chkShowDomicile')?.checked; const c = document.getElementById('chkShowCaste')?.checked; const b = document.getElementById('chkShowEvoter')?.checked; const m = document.getElementById('chkShowDobMinor')?.checked; const pill = document.getElementById('stealthStatusBadge'); if (!pill) return;
     if (!d && !c && !b && !m) { pill.className = "bg-red-100 text-red-700 border border-red-300 px-2.5 py-1 rounded-full text-[10px] font-black uppercase"; pill.innerHTML = `<i class="fa-solid fa-eye-slash mr-1"></i>Stealth Active`; } else if (d && c && b && m) { pill.className = "bg-green-100 text-green-800 border border-green-300 px-2.5 py-1 rounded-full text-[10px] font-black uppercase"; pill.innerHTML = `<i class="fa-solid fa-eye mr-1"></i>All Visible`; } else { pill.className = "bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-1 rounded-full text-[10px] font-black uppercase"; pill.innerHTML = `<i class="fa-solid fa-sliders mr-1"></i>Custom Mode`; }
 };
 
-window.quickToggleAllCerts = async function(makeVisible) { document.getElementById('chkShowDomicile').checked = makeVisible; document.getElementById('chkShowCaste').checked = makeVisible; document.getElementById('chkShowDob18').checked = makeVisible; const dobMinorEl = document.getElementById('chkShowDobMinor'); if(dobMinorEl) dobMinorEl.checked = makeVisible; await window.savePortalSettings(); };
+window.quickToggleAllCerts = async function(makeVisible) { document.getElementById('chkShowDomicile').checked = makeVisible; document.getElementById('chkShowCaste').checked = makeVisible; if(document.getElementById('chkShowEvoter')) document.getElementById('chkShowEvoter').checked = makeVisible; const dobMinorEl = document.getElementById('chkShowDobMinor'); if(dobMinorEl) dobMinorEl.checked = makeVisible; await window.savePortalSettings(); };
 
 window.savePortalSettings = async function(event) {
     if (event) event.preventDefault(); 
@@ -491,7 +483,7 @@ window.savePortalSettings = async function(event) {
     const payload = { 
         showDomicile: document.getElementById('chkShowDomicile').checked, 
         showCaste: document.getElementById('chkShowCaste').checked, 
-        showDob18: document.getElementById('chkShowDob18').checked, 
+        showEvoter: document.getElementById('chkShowEvoter') ? document.getElementById('chkShowEvoter').checked : true, 
         showDobMinor: document.getElementById('chkShowDobMinor') ? document.getElementById('chkShowDobMinor').checked : true, 
         showDobDelhi: document.getElementById('chkShowDobMinor') ? document.getElementById('chkShowDobMinor').checked : true,
         showPassport: document.getElementById('chkShowPassport') ? document.getElementById('chkShowPassport').checked : true,
@@ -1282,10 +1274,8 @@ window.handleUserSelection = function() {
     
     if(document.getElementById('userDomicileToggle')) document.getElementById('userDomicileToggle').checked = uData.allowDomicile !== false;
     if(document.getElementById('userCasteToggle')) document.getElementById('userCasteToggle').checked = uData.allowCaste !== false;
-    if(document.getElementById('userMinorToggle')) {
-        const isDefFree = FREE_VIP_EMAILS.includes((uData.email || '').toLowerCase());
-        document.getElementById('userMinorToggle').checked = uData.allowMinor !== false && (uData.allowMinor === true || isDefFree);
-    } 
+    if(document.getElementById('userEvoterToggle')) document.getElementById('userEvoterToggle').checked = uData.allowEvoter !== false;
+    if(document.getElementById('userMinorToggle')) document.getElementById('userMinorToggle').checked = (uData.allowMinor === true || FREE_VIP_EMAILS.includes((uData.email || '').toLowerCase())); 
     if(document.getElementById('userDobDelhiToggle')) document.getElementById('userDobDelhiToggle').checked = (uData.allowDobDelhi !== false && uData.allowDobMinor !== false);
     if(document.getElementById('userDobMinorToggle')) document.getElementById('userDobMinorToggle').checked = (uData.allowDobDelhi !== false && uData.allowDobMinor !== false);
     if(document.getElementById('userPassportToggle')) document.getElementById('userPassportToggle').checked = uData.allowPassport !== false;
@@ -1536,7 +1526,8 @@ window.createNewUserByAdmin = async function(e) { e.preventDefault(); const emai
     credits: credits, 
     isVip: isVip, 
     vipExpiry: vipExpiry, 
-    allowDob18: true, 
+    allowEvoter: true,
+    allowMinor: false, 
     allowDobDelhi: true, 
     allowDobMinor: true, 
     allowDomicile: true, 
